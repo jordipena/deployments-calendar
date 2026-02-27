@@ -37,65 +37,74 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── Jira Webhook ─────────────────────────────────────────────────────────────
+// ─── Jira Polling ─────────────────────────────────────────────────────────────
 //
-// Jira sends a POST to /webhook/jira every time an issue transitions.
-// We only care about transitions TO the column defined in JIRA_PRODUCTION_COLUMN.
+// Every 2 minutes, queries Jira API for issues that transitioned to DONE
+// recently, and registers them as deploys if not already present.
 //
-app.post('/webhook/jira', async (req, res) => {
+async function pollJira() {
+  const baseUrl    = process.env.JIRA_BASE_URL;
+  const email      = process.env.JIRA_EMAIL;
+  const apiToken   = process.env.JIRA_API_TOKEN;
+  const project    = process.env.JIRA_PROJECT_KEY;
+  const statusName = process.env.JIRA_PRODUCTION_COLUMN || 'Done';
+
+  if (!baseUrl || !email || !apiToken || !project) {
+    console.log('⚠ Jira polling skipped — missing env vars');
+    return;
+  }
+
   try {
-    const payload = req.body;
+    const auth = Buffer.from(`${email}:${apiToken}`).toString('base64');
 
-    // Jira webhook secret validation (optional but recommended)
-    const secret = req.headers['x-hub-signature'] || req.query.token;
-    if (process.env.WEBHOOK_SECRET && secret !== process.env.WEBHOOK_SECRET) {
-      return res.status(401).json({ error: 'Invalid webhook secret' });
-    }
-
-    // We only handle issue transitions
-    if (payload.webhookEvent !== 'jira:issue_updated') {
-      return res.status(200).json({ ignored: true });
-    }
-
-    const transition = payload.changelog?.items?.find(i => i.field === 'status');
-    if (!transition) {
-      return res.status(200).json({ ignored: true, reason: 'No status change' });
-    }
-
-    const targetColumn = process.env.JIRA_PRODUCTION_COLUMN || 'In Production';
-    const toStatus = transition.toString;
-
-    if (toStatus !== targetColumn) {
-      return res.status(200).json({ ignored: true, reason: `Status "${toStatus}" is not "${targetColumn}"` });
-    }
-
-    // Extract issue data
-    const issue = payload.issue;
-    const name     = issue.fields.summary;
-    const jiraKey  = issue.key;
-    const jiraUrl  = `${process.env.JIRA_BASE_URL}/browse/${jiraKey}`;
-    const owner    = issue.fields.assignee?.displayName || null;
-    const date     = new Date().toISOString().split('T')[0]; // today
-
-    // Avoid duplicates (same Jira issue transitioned twice)
-    const existing = await pool.query('SELECT id FROM deploys WHERE jira_key = $1', [jiraKey]);
-    if (existing.rows.length > 0) {
-      return res.status(200).json({ ignored: true, reason: 'Already registered' });
-    }
-
-    await pool.query(
-      'INSERT INTO deploys (name, date, env, owner, jira_key, jira_url) VALUES ($1, $2, $3, $4, $5, $6)',
-      [name, date, 'prod', owner, jiraKey, jiraUrl]
+    // Search issues moved to the target status in the last 10 minutes
+    const jql = encodeURIComponent(
+      `project = "${project}" AND status = "${statusName}" AND status changed to "${statusName}" after "-10m"`
     );
 
-    console.log(`✓ Deploy registered from Jira: [${jiraKey}] ${name}`);
-    res.status(201).json({ ok: true, jiraKey, name });
+    const url = `${baseUrl}/rest/api/3/search?jql=${jql}&fields=summary,assignee,statuscategorychangedate`;
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      console.error('✗ Jira API error:', response.status, await response.text());
+      return;
+    }
+
+    const data = await response.json();
+    const issues = data.issues || [];
+
+    for (const issue of issues) {
+      const jiraKey = issue.key;
+
+      // Skip if already registered
+      const existing = await pool.query('SELECT id FROM deploys WHERE jira_key = $1', [jiraKey]);
+      if (existing.rows.length > 0) continue;
+
+      const name     = issue.fields.summary;
+      const owner    = issue.fields.assignee?.displayName || null;
+      const jiraUrl  = `${baseUrl}/browse/${jiraKey}`;
+      const date     = new Date().toISOString().split('T')[0];
+
+      await pool.query(
+        'INSERT INTO deploys (name, date, env, owner, jira_key, jira_url) VALUES ($1, $2, $3, $4, $5, $6)',
+        [name, date, 'prod', owner, jiraKey, jiraUrl]
+      );
+
+      console.log(`✓ Deploy registered from Jira polling: [${jiraKey}] ${name}`);
+    }
 
   } catch (err) {
-    console.error('Webhook error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('✗ Jira polling error:', err.message);
   }
-});
+}
+
+// Run every 2 minutes
+const POLL_INTERVAL_MS = 2 * 60 * 1000;
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
 
@@ -149,4 +158,7 @@ app.delete('/api/deploys/:id', async (req, res) => {
 
 initDB().then(() => {
   app.listen(PORT, () => console.log(`✓ Server running on port ${PORT}`));
+  pollJira();
+  setInterval(pollJira, POLL_INTERVAL_MS);
+  console.log(`✓ Jira polling started (every ${POLL_INTERVAL_MS / 1000}s)`);
 });
