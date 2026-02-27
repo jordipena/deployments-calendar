@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deploy Calendar</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --border: #2a2a2a;
+    --accent: #c8f060;
+    --accent-dim: rgba(200,240,96,0.12);
+    --text: #e8e8e8;
+    --muted: #666;
+    --danger: #ff6b6b;
+    --blue: #60b8f0;
+    --radius: 6px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 32px 24px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .logo {
+    font-family: 'Fraunces', serif;
+    font-size: 28px;
+    font-weight: 300;
+    letter-spacing: -0.5px;
+  }
+
+  .logo span { color: var(--accent); font-style: italic; }
+
+  .header-meta {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+
+  .sync-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .sync-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+
+  .sync-dot.ok { background: var(--accent); }
+  .sync-dot.error { background: var(--danger); }
+  .sync-dot.loading { background: var(--blue); animation: pulse 1s infinite; }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
+
+  .calendar-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .cal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .cal-title {
+    font-family: 'Fraunces', serif;
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .nav-btns { display: flex; gap: 8px; }
+
+  .nav-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+
+  .nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .cal-grid { padding: 16px; }
+
+  .day-labels {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    margin-bottom: 8px;
+  }
+
+  .day-label {
+    text-align: center;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    padding: 6px 0;
+  }
+
+  .days-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 3px;
+  }
+
+  .day-cell {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 4px 2px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+    min-height: 48px;
+  }
+
+  .day-cell:hover:not(.empty) { background: var(--border); }
+  .day-cell.empty { cursor: default; }
+
+  .day-cell.today .day-num {
+    background: var(--accent);
+    color: #0f0f0f;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .day-cell.has-deploy { background: var(--accent-dim); }
+
+  .day-num {
+    font-size: 12px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .day-dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    justify-content: center;
+    margin-top: 2px;
+  }
+
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+  .sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .jira-badge {
+    font-size: 9px;
+    background: rgba(96,184,240,0.15);
+    color: var(--blue);
+    border: 1px solid rgba(96,184,240,0.2);
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+  }
+
+  .form-body {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+
+  label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+  }
+
+  input, textarea, select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    padding: 9px 12px;
+    border-radius: var(--radius);
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  select option { background: var(--surface); }
+  textarea { resize: vertical; min-height: 64px; }
+
+  .btn-add {
+    background: var(--accent);
+    color: #0f0f0f;
+    border: none;
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: opacity 0.15s;
+  }
+
+  .btn-add:hover { opacity: 0.85; }
+  .btn-add:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .deploys-list {
+    padding: 8px 12px;
+    max-height: 380px;
+    overflow-y: auto;
+  }
+
+  .deploys-list::-webkit-scrollbar { width: 4px; }
+  .deploys-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .deploy-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 8px;
+    border-radius: var(--radius);
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+
+  .deploy-item:last-child { border-bottom: none; }
+  .deploy-item:hover { background: var(--border); }
+
+  .deploy-date-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 36px;
+    background: var(--accent-dim);
+    border: 1px solid rgba(200,240,96,0.2);
+    border-radius: 4px;
+    padding: 4px 6px;
+  }
+
+  .badge-day { font-size: 16px; font-weight: 500; color: var(--accent); line-height: 1; }
+  .badge-month { font-size: 9px; text-transform: uppercase; color: var(--accent); opacity: 0.7; letter-spacing: 1px; }
+
+  .deploy-info { flex: 1; min-width: 0; }
+
+  .deploy-name {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .deploy-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .deploy-env {
+    display: inline-block;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-top: 4px;
+  }
+
+  .env-prod { background: rgba(255,107,107,0.15); color: var(--danger); border: 1px solid rgba(255,107,107,0.2); }
+  .env-stag { background: rgba(96,184,240,0.15); color: var(--blue); border: 1px solid rgba(96,184,240,0.2); }
+  .env-dev  { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(200,240,96,0.2); }
+
+  .jira-link {
+    font-size: 10px;
+    color: var(--blue);
+    text-decoration: none;
+    opacity: 0.7;
+    display: block;
+    margin-top: 2px;
+  }
+
+  .jira-link:hover { opacity: 1; }
+
+  .btn-del {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px;
+    line-height: 1;
+    transition: color 0.1s;
+    flex-shrink: 0;
+  }
+
+  .btn-del:hover { color: var(--danger); }
+
+  .empty-state {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: 360px;
+    max-width: 90vw;
+  }
+
+  .modal h3 {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: 18px;
+    margin-bottom: 16px;
+  }
+
+  .modal-deploys {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 280px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+  }
+
+  .modal-deploy-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .modal-close {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    width: 100%;
+    transition: border-color 0.15s;
+  }
+
+  .modal-close:hover { border-color: var(--accent); }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border-top: 1px solid var(--border);
+  }
+
+  .stat { background: var(--surface); padding: 14px 16px; text-align: center; }
+
+  .stat-num {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  .stat-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">deploy<span>cal</span></div>
+  <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+    <div class="sync-indicator">
+      <div class="sync-dot" id="sync-dot"></div>
+      <span id="sync-label">conectando...</span>
+    </div>
+    <div class="header-meta">Production Release Tracker</div>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="calendar-card">
+    <div class="cal-header">
+      <div class="cal-title" id="cal-title"></div>
+      <div class="nav-btns">
+        <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
+        <button class="nav-btn" onclick="goToday()">•</button>
+        <button class="nav-btn" onclick="changeMonth(1)">›</button>
+      </div>
+    </div>
+    <div class="cal-grid">
+      <div class="day-labels">
+        <div class="day-label">Lu</div>
+        <div class="day-label">Ma</div>
+        <div class="day-label">Mi</div>
+        <div class="day-label">Ju</div>
+        <div class="day-label">Vi</div>
+        <div class="day-label">Sa</div>
+        <div class="day-label">Do</div>
+      </div>
+      <div class="days-grid" id="days-grid"></div>
+    </div>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-num" id="stat-total">—</div><div class="stat-label">Total mes</div></div>
+      <div class="stat"><div class="stat-num" id="stat-upcoming">—</div><div class="stat-label">Próximos</div></div>
+      <div class="stat"><div class="stat-num" id="stat-prod">—</div><div class="stat-label">Producción</div></div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="card">
+      <div class="card-header">
+        <span>Añadir manual</span>
+        <span class="jira-badge">Auto via Jira</span>
+      </div>
+      <div class="form-body">
+        <div class="field">
+          <label>Funcionalidad</label>
+          <input type="text" id="f-name" placeholder="Ej: Login con Google">
+        </div>
+        <div class="field">
+          <label>Fecha</label>
+          <input type="date" id="f-date">
+        </div>
+        <div class="field">
+          <label>Entorno</label>
+          <select id="f-env">
+            <option value="prod">Producción</option>
+            <option value="stag">Staging</option>
+            <option value="dev">Desarrollo</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Responsable</label>
+          <input type="text" id="f-owner" placeholder="Ej: @marta">
+        </div>
+        <div class="field">
+          <label>Notas (opcional)</label>
+          <textarea id="f-notes" placeholder="Detalles del deploy..."></textarea>
+        </div>
+        <button class="btn-add" id="btn-add" onclick="addDeploy()">+ Añadir despliegue</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Despliegues del mes</div>
+      <div class="deploys-list" id="deploys-list">
+        <div class="empty-state">Cargando...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal" onclick="closeModal(event)">
+  <div class="modal">
+    <h3 id="modal-title"></h3>
+    <div class="modal-deploys" id="modal-deploys"></div>
+    <button class="modal-close" onclick="closeModal()">Cerrar</button>
+  </div>
+</div>
+
+<script>
+  // ── Config ──────────────────────────────────────────────────────────────────
+  // Change this to your Railway backend URL once deployed
+  const API_BASE = window.location.hostname === 'localhost'
+    ? 'http://localhost:3000'
+    : 'https://YOUR_RAILWAY_APP.railway.app'; // ← update after deploy
+
+  const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const MONTHS_SHORT = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
+  let deploys = [];
+  let current = new Date();
+  let viewYear = current.getFullYear();
+  let viewMonth = current.getMonth();
+
+  // ── Sync indicator ──────────────────────────────────────────────────────────
+  function setSyncState(state, label) {
+    const dot = document.getElementById('sync-dot');
+    const lbl = document.getElementById('sync-label');
+    dot.className = 'sync-dot ' + state;
+    lbl.textContent = label;
+  }
+
+  // ── API calls ───────────────────────────────────────────────────────────────
+  async function fetchDeploys() {
+    setSyncState('loading', 'cargando...');
+    try {
+      const res = await fetch(`${API_BASE}/api/deploys?year=${viewYear}&month=${viewMonth + 1}`);
+      if (!res.ok) throw new Error('API error');
+      deploys = await res.json();
+      setSyncState('ok', 'sincronizado');
+      render();
+    } catch (e) {
+      setSyncState('error', 'sin conexión');
+      document.getElementById('deploys-list').innerHTML =
+        '<div class="empty-state">No se pudo conectar con el servidor.</div>';
+    }
+  }
+
+  async function addDeploy() {
+    const name  = document.getElementById('f-name').value.trim();
+    const date  = document.getElementById('f-date').value;
+    const env   = document.getElementById('f-env').value;
+    const owner = document.getElementById('f-owner').value.trim();
+    const notes = document.getElementById('f-notes').value.trim();
+
+    if (!name || !date) { alert('El nombre y la fecha son obligatorios.'); return; }
+
+    const btn = document.getElementById('btn-add');
+    btn.disabled = true;
+    btn.textContent = 'Guardando...';
+
+    try {
+      const res = await fetch(`${API_BASE}/api/deploys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, date, env, owner, notes })
+      });
+      if (!res.ok) throw new Error();
+
+      document.getElementById('f-name').value = '';
+      document.getElementById('f-owner').value = '';
+      document.getElementById('f-notes').value = '';
+      await fetchDeploys();
+    } catch {
+      alert('Error al guardar. Comprueba la conexión.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '+ Añadir despliegue';
+    }
+  }
+
+  async function deleteDeploy(id) {
+    try {
+      await fetch(`${API_BASE}/api/deploys/${id}`, { method: 'DELETE' });
+      await fetchDeploys();
+    } catch {
+      alert('Error al eliminar.');
+    }
+  }
+
+  // ── Navigation ───────────────────────────────────────────────────────────────
+  function changeMonth(dir) {
+    viewMonth += dir;
+    if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+    if (viewMonth < 0)  { viewMonth = 11; viewYear--; }
+    fetchDeploys();
+  }
+
+  function goToday() {
+    viewYear = current.getFullYear();
+    viewMonth = current.getMonth();
+    fetchDeploys();
+  }
+
+  // ── Modal ────────────────────────────────────────────────────────────────────
+  function showDay(year, month, day) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const dayDeploys = deploys.filter(d => d.date?.startsWith(dateStr));
+    if (!dayDeploys.length) return;
+
+    document.getElementById('modal-title').textContent = `${day} de ${MONTHS[month]}`;
+    document.getElementById('modal-deploys').innerHTML = dayDeploys.map(d => `
+      <div class="modal-deploy-item">
+        <div>
+          <div style="font-size:13px;font-weight:500">${d.name}</div>
+          ${d.owner ? `<div style="font-size:11px;color:var(--muted);margin-top:3px">${d.owner}</div>` : ''}
+          ${d.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:3px">${d.notes}</div>` : ''}
+          ${d.jira_key ? `<a class="jira-link" href="${d.jira_url}" target="_blank">${d.jira_key} ↗</a>` : ''}
+          <span class="deploy-env env-${d.env}">${d.env === 'prod' ? 'Producción' : d.env === 'stag' ? 'Staging' : 'Desarrollo'}</span>
+        </div>
+        <button class="btn-del" onclick="deleteDeploy(${d.id});closeModal()">✕</button>
+      </div>
+    `).join('');
+    document.getElementById('modal').classList.add('open');
+  }
+
+  function closeModal(e) {
+    if (!e || e.target === document.getElementById('modal')) {
+      document.getElementById('modal').classList.remove('open');
+    }
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+  function render() {
+    document.getElementById('cal-title').textContent = `${MONTHS[viewMonth]} ${viewYear}`;
+
+    const grid = document.getElementById('days-grid');
+    grid.innerHTML = '';
+
+    const firstDay = new Date(viewYear, viewMonth, 1);
+    const lastDay  = new Date(viewYear, viewMonth+1, 0);
+    let startOffset = firstDay.getDay() - 1;
+    if (startOffset < 0) startOffset = 6;
+
+    const todayStr = current.toISOString().split('T')[0];
+
+    for (let i = 0; i < startOffset; i++) {
+      const e = document.createElement('div');
+      e.className = 'day-cell empty';
+      grid.appendChild(e);
+    }
+
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const dayDeploys = deploys.filter(dep => dep.date?.startsWith(dateStr));
+      const isToday = dateStr === todayStr;
+
+      const cell = document.createElement('div');
+      cell.className = 'day-cell' + (dayDeploys.length ? ' has-deploy' : '') + (isToday ? ' today' : '');
+      cell.innerHTML = `<div class="day-num">${d}</div>`;
+
+      if (dayDeploys.length) {
+        const dots = document.createElement('div');
+        dots.className = 'day-dots';
+        dayDeploys.slice(0,3).forEach(() => {
+          const dot = document.createElement('div');
+          dot.className = 'dot';
+          dots.appendChild(dot);
+        });
+        cell.appendChild(dots);
+        cell.onclick = () => showDay(viewYear, viewMonth, d);
+      }
+
+      grid.appendChild(cell);
+    }
+
+    // Stats
+    const todayDateStr = todayStr;
+    const upcoming = deploys.filter(d => d.date >= todayDateStr);
+    const prod = deploys.filter(d => d.env === 'prod');
+
+    document.getElementById('stat-total').textContent = deploys.length;
+    document.getElementById('stat-upcoming').textContent = upcoming.length;
+    document.getElementById('stat-prod').textContent = prod.length;
+
+    // List
+    const list = document.getElementById('deploys-list');
+    if (!deploys.length) {
+      list.innerHTML = '<div class="empty-state">Sin despliegues este mes.<br>¡Añade el primero!</div>';
+      return;
+    }
+
+    list.innerHTML = deploys.map(d => {
+      const day = d.date?.split('-')[2];
+      const envLabel = d.env === 'prod' ? 'Producción' : d.env === 'stag' ? 'Staging' : 'Desarrollo';
+      return `
+        <div class="deploy-item">
+          <div class="deploy-date-badge">
+            <div class="badge-day">${parseInt(day)}</div>
+            <div class="badge-month">${MONTHS_SHORT[viewMonth]}</div>
+          </div>
+          <div class="deploy-info">
+            <div class="deploy-name">${d.name}</div>
+            ${d.owner ? `<div class="deploy-meta">${d.owner}</div>` : ''}
+            ${d.jira_key ? `<a class="jira-link" href="${d.jira_url}" target="_blank">${d.jira_key} ↗</a>` : ''}
+            <span class="deploy-env env-${d.env}">${envLabel}</span>
+          </div>
+          <button class="btn-del" onclick="deleteDeploy(${d.id})">✕</button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Init
+  const today = current;
+  document.getElementById('f-date').value = today.toISOString().split('T')[0];
+
+  // Auto-refresh every 30 seconds to pick up Jira-triggered deploys
+  fetchDeploys();
+  setInterval(fetchDeploys, 30000);
+</script>
+</body>
+</html>
