@@ -62,7 +62,7 @@ async function pollJira() {
       `project = "${project}" AND status = "${statusName}" AND status changed to "${statusName}" after "-10m"`
     );
 
-    const url = `${baseUrl}/rest/api/3/search?jql=${jql}&fields=summary,assignee,statuscategorychangedate`;
+    const url = `${baseUrl}/rest/api/3/search/jql?jql=${jql}&fields=summary,assignee,statuscategorychangedate`;
     const response = await fetch(url, {
       headers: {
         'Authorization': `Basic ${auth}`,
